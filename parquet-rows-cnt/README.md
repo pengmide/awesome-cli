@@ -31,7 +31,7 @@ go run ./cmd/parquet-rowcount --total-only data.parquet
 ### 当前平台构建
 
 ```bash
-go build -o bin/parquet-rowcount ./cmd/parquet-rowcount
+go build -o ../bin/parquet-rowcount ./cmd/parquet-rowcount
 ```
 
 ### 常见平台交叉编译

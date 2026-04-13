@@ -95,7 +95,7 @@ go mod tidy
 本地编译：
 
 ```bash
-go build -o get-doubao-pic .
+go build -o ../bin/get-doubao-pic .
 ```
 
 运行二进制：
