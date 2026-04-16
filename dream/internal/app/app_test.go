@@ -498,6 +498,12 @@ func TestExecuteTopLevelHelpMentionsClaude(t *testing.T) {
 	if !strings.Contains(help, "dream run -m claude ./task.md") {
 		t.Fatalf("top-level help missing Claude example: %q", help)
 	}
+	if !strings.Contains(help, "template") {
+		t.Fatalf("top-level help missing template command: %q", help)
+	}
+	if !strings.Contains(help, "dream template my-plan") {
+		t.Fatalf("top-level help missing template example: %q", help)
+	}
 }
 
 func TestExecuteRunHelpReturnsNilAndMentionsClaude(t *testing.T) {
@@ -527,6 +533,73 @@ func TestExecuteRunHelpReturnsNilAndMentionsClaude(t *testing.T) {
 	}
 	if !strings.Contains(help, "dream run -m claude ./task.md") {
 		t.Fatalf("run help missing Claude example: %q", help)
+	}
+}
+
+func TestExecuteTemplateHelpReturnsNil(t *testing.T) {
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	controller := &Controller{
+		Store:     state.New(t.TempDir()),
+		Executors: map[string]agent.Executor{},
+		Cwd:       t.TempDir(),
+		Out:       &out,
+		Err:       &errOut,
+	}
+
+	err := controller.Execute(context.Background(), []string{"template", "-h"})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	help := errOut.String()
+	if !strings.Contains(help, "dream template <dir>") {
+		t.Fatalf("template help missing usage: %q", help)
+	}
+	if !strings.Contains(help, "README.md and a sample feature document") {
+		t.Fatalf("template help missing behavior text: %q", help)
+	}
+}
+
+func TestExecuteTemplateCreatesTemplateDirectory(t *testing.T) {
+	tempDir := t.TempDir()
+	var out bytes.Buffer
+	controller := &Controller{
+		Store:     state.New(tempDir),
+		Executors: map[string]agent.Executor{},
+		Cwd:       tempDir,
+		Out:       &out,
+		Err:       &bytes.Buffer{},
+	}
+
+	if err := controller.Execute(context.Background(), []string{"template", "my-plan"}); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	targetDir := filepath.Join(tempDir, "my-plan")
+	if _, err := os.Stat(filepath.Join(targetDir, "README.md")); err != nil {
+		t.Fatalf("README not created: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(targetDir, "feature-foundation.md")); err != nil {
+		t.Fatalf("feature doc not created: %v", err)
+	}
+	output := out.String()
+	if !strings.Contains(output, "created template in "+targetDir) {
+		t.Fatalf("unexpected template output: %q", output)
+	}
+}
+
+func TestExecuteTemplateRejectsMissingDir(t *testing.T) {
+	controller := &Controller{
+		Store:     state.New(t.TempDir()),
+		Executors: map[string]agent.Executor{},
+		Cwd:       t.TempDir(),
+		Out:       &bytes.Buffer{},
+		Err:       &bytes.Buffer{},
+	}
+
+	err := controller.Execute(context.Background(), []string{"template"})
+	if err == nil || !strings.Contains(err.Error(), "usage: dream template <dir>") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

@@ -17,6 +17,7 @@ import (
 	"dream/internal/codex"
 	"dream/internal/doc"
 	"dream/internal/state"
+	dreamtemplate "dream/internal/template"
 )
 
 const defaultInterTaskDelay = 20 * time.Second
@@ -71,6 +72,8 @@ func (c *Controller) Execute(ctx context.Context, args []string) error {
 		return c.executeStatus(args[1:])
 	case "logs":
 		return c.executeLogs(args[1:])
+	case "template":
+		return c.executeTemplate(args[1:])
 	case "help", "-h", "--help":
 		c.printHelp()
 		return nil
@@ -224,6 +227,23 @@ func (c *Controller) ShowLogs(ref string, round int) error {
 	return err
 }
 
+func (c *Controller) CreateTemplate(dirArg string) error {
+	targetDir, err := resolveTemplateDir(c.Cwd, dirArg)
+	if err != nil {
+		return err
+	}
+
+	result, err := dreamtemplate.Create(targetDir)
+	if err != nil {
+		return err
+	}
+
+	_, _ = fmt.Fprintf(c.Out, "created template in %s\n", result.Dir)
+	_, _ = fmt.Fprintf(c.Out, "- %s\n", result.ReadmePath)
+	_, _ = fmt.Fprintf(c.Out, "- %s\n", result.FeaturePath)
+	return nil
+}
+
 func (c *Controller) executeRun(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	model := fs.String("model", agent.ModelCodex, "model backend to use (supported: codex, claude)")
@@ -299,6 +319,24 @@ func (c *Controller) executeLogs(args []string) error {
 		return fmt.Errorf("usage: dream logs <doc-or-workflow> [--round N]")
 	}
 	return c.ShowLogs(fs.Arg(0), *round)
+}
+
+func (c *Controller) executeTemplate(args []string) error {
+	fs := flag.NewFlagSet("template", flag.ContinueOnError)
+	fs.SetOutput(c.Err)
+	fs.Usage = func() {
+		c.printTemplateHelp(fs.Output())
+	}
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	if fs.NArg() != 1 {
+		return fmt.Errorf("usage: dream template <dir>")
+	}
+	return c.CreateTemplate(fs.Arg(0))
 }
 
 func (c *Controller) loadOrCreateStatus(meta state.WorkflowMeta) (state.WorkflowStatus, bool, error) {
@@ -547,6 +585,7 @@ func (c *Controller) printHelp() {
 	_, _ = fmt.Fprintln(writer, "  resume\tresume an interrupted workflow")
 	_, _ = fmt.Fprintln(writer, "  status\tshow workflow status")
 	_, _ = fmt.Fprintln(writer, "  logs\tshow logs for the current or specified round")
+	_, _ = fmt.Fprintln(writer, "  template\tgenerate a workflow document template directory")
 	_, _ = fmt.Fprintln(writer, "  help\tshow this help")
 	_ = writer.Flush()
 
@@ -566,8 +605,9 @@ func (c *Controller) printHelp() {
 	_, _ = fmt.Fprintln(c.Out, "  dream resume ./task.md")
 	_, _ = fmt.Fprintln(c.Out, "  dream status ./task.md")
 	_, _ = fmt.Fprintln(c.Out, "  dream logs ./task.md --round 2")
+	_, _ = fmt.Fprintln(c.Out, "  dream template my-plan")
 	_, _ = fmt.Fprintln(c.Out, "")
-	_, _ = fmt.Fprintln(c.Out, "Use \"dream run -h\" for run-specific flags.")
+	_, _ = fmt.Fprintln(c.Out, "Use \"dream run -h\" or \"dream template -h\" for command-specific help.")
 }
 
 func (c *Controller) printRunHelp(out io.Writer) {
@@ -595,6 +635,27 @@ func (c *Controller) printRunHelp(out io.Writer) {
 	_, _ = fmt.Fprintln(out, "  dream run -m claude -s ~/.claude/settings.json ./task.md")
 }
 
+func (c *Controller) printTemplateHelp(out io.Writer) {
+	_, _ = fmt.Fprintln(out, "Usage:")
+	_, _ = fmt.Fprintln(out, "  dream template <dir>")
+	_, _ = fmt.Fprintln(out, "")
+	_, _ = fmt.Fprintln(out, "Arguments:")
+
+	writer := tabwriter.NewWriter(out, 0, 8, 2, ' ', 0)
+	_, _ = fmt.Fprintln(writer, "  <dir>\ttarget directory to create under the current working directory")
+	_ = writer.Flush()
+
+	_, _ = fmt.Fprintln(out, "")
+	_, _ = fmt.Fprintln(out, "Behavior:")
+	_, _ = fmt.Fprintln(out, "  Creates a workflow template directory with README.md and a sample feature document.")
+	_, _ = fmt.Fprintln(out, "  The target directory must not already contain files.")
+
+	_, _ = fmt.Fprintln(out, "")
+	_, _ = fmt.Fprintln(out, "Examples:")
+	_, _ = fmt.Fprintln(out, "  dream template my-plan")
+	_, _ = fmt.Fprintln(out, "  dream template plans/refactor")
+}
+
 func resolveDocPath(docArg string) (string, error) {
 	if docArg == "" {
 		return "", fmt.Errorf("missing document path")
@@ -611,6 +672,17 @@ func resolveDocPath(docArg string) (string, error) {
 		return "", fmt.Errorf("%s is a directory", absDoc)
 	}
 	return absDoc, nil
+}
+
+func resolveTemplateDir(cwd, dirArg string) (string, error) {
+	if strings.TrimSpace(dirArg) == "" {
+		return "", fmt.Errorf("missing template directory")
+	}
+
+	if filepath.IsAbs(dirArg) {
+		return filepath.Clean(dirArg), nil
+	}
+	return filepath.Join(cwd, dirArg), nil
 }
 
 func sleepContext(ctx context.Context, delay time.Duration) error {

@@ -32,13 +32,14 @@ go build -buildvcs=false -o ../bin/dream .
 
 ### 1.1 命令总览
 
-当前版本支持 4 个主命令：
+当前版本支持 5 个主命令：
 
 ```bash
 dream run [--model codex|claude] [--settings path-or-json] <doc>
 dream resume <doc-or-workflow>
 dream status [doc-or-workflow]
 dream logs <doc-or-workflow> [--round N]
+dream template <dir>
 ```
 
 说明：
@@ -48,6 +49,7 @@ dream logs <doc-or-workflow> [--round N]
 - `--model/-m` 用于指定执行后端；不指定时默认 `codex`
 - `--settings/-s` 仅在 `--model claude` 时生效，对应原生 `claude --settings`
 - `--round N` 用于查看指定轮次日志；不指定时默认查看当前轮次
+- `dir` 是要创建的模板目录；相对路径默认创建在当前执行命令的工作目录下
 
 ### 1.2 最常见的使用模式
 
@@ -165,6 +167,35 @@ dream logs ./task.md --round 2
 - 想回看某一轮的最终助手输出
 - 想定位是哪一轮出现异常
 
+#### 模式六：快速生成一套计划文档模板
+
+```bash
+dream template my-plan
+```
+
+生成后可直接开始执行：
+
+```bash
+dream run my-plan/README.md
+```
+
+适用场景：
+
+- 想快速搭一个可长期维护的工作流目录
+- 希望总文档和子文档结构从一开始就对齐
+- 不想每次手工重新抄计划骨架
+
+生成内容：
+
+- `my-plan/README.md`
+- `my-plan/feature-foundation.md`
+
+说明：
+
+- 模板生成的是可修改的初始骨架，不是固定死的严格格式
+- 首次执行 `dream run my-plan/README.md` 时，`dream` 会自动补写 `PROJECT_ROOT=...`
+- 目标目录必须不存在或为空目录；如果目录里已有文件，`dream template` 会直接拒绝覆盖
+
 ## 2. 文档格式与使用约定
 
 `dream` 不要求你把文档写成严格的固定模板，但至少需要满足两点：
@@ -195,6 +226,15 @@ PROJECT_ROOT=/absolute/path/to/project
 - 提示词文档
 - 方案文档
 - 进度文档
+
+如果你不想手写初始骨架，也可以先执行：
+
+```bash
+dream template my-plan
+dream run my-plan/README.md
+```
+
+生成模板后，再按项目实际情况补充或重命名功能点文档即可。
 
 ## 3. 这个 CLI 会产出什么
 
@@ -645,7 +685,7 @@ dream run ./task.md
 
 如果你把 `dream` 用在真实项目里，推荐这样操作：
 
-1. 准备一份工作流文档
+1. 准备一份工作流文档，或先用 `dream template <dir>` 生成模板
 2. 先用 `dream run <doc>` 启动
 3. 用 `dream status` 跟踪整体进度
 4. 用 `dream logs <doc>` 看每轮结果
