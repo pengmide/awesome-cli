@@ -34,6 +34,12 @@ const (
 	requiredLoginRequiredPolls = 2
 )
 
+var (
+	postLoginSettleDelay = 3 * time.Second
+	preCloseSettleDelay  = 2 * time.Second
+	gracefulCloseTimeout = 10 * time.Second
+)
+
 type Session struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
@@ -42,11 +48,16 @@ type Session struct {
 	collector   *doubao.Collector
 	reqMetaMu   sync.RWMutex
 	reqMeta     map[network.RequestID]requestMeta
+	closeOnce   sync.Once
 }
 
 type requestMeta struct {
 	URL       string
 	Timestamp time.Time
+}
+
+type interactiveWaitResult struct {
+	ReadyAfterLogin bool
 }
 
 func NewSession(parent context.Context, cfg config.Config, collector *doubao.Collector) (*Session, error) {
@@ -103,11 +114,19 @@ func NewSession(parent context.Context, cfg config.Config, collector *doubao.Col
 }
 
 func (s *Session) Close() {
-	s.cancel()
-	s.allocCancel()
-	if s.cleanup != nil {
-		_ = s.cleanup()
-	}
+	s.closeOnce.Do(func() {
+		waitForSettle(s.ctx, preCloseSettleDelay)
+
+		gracefulCtx, gracefulCancel := context.WithTimeout(s.ctx, gracefulCloseTimeout)
+		_ = chromedp.Cancel(gracefulCtx)
+		gracefulCancel()
+
+		s.cancel()
+		s.allocCancel()
+		if s.cleanup != nil {
+			_ = s.cleanup()
+		}
+	})
 }
 
 func (s *Session) Run(ctx context.Context, cfg config.Config) ([]doubao.ImageAsset, error) {
@@ -118,8 +137,12 @@ func (s *Session) Run(ctx context.Context, cfg config.Config) ([]doubao.ImageAss
 		return nil, fmt.Errorf("open doubao chat page: %w", err)
 	}
 
-	if err := waitForInteractive(s.ctx, cfg.InteractiveWait); err != nil {
+	interactiveResult, err := waitForInteractive(s.ctx, cfg.InteractiveWait, cfg.Headless)
+	if err != nil {
 		return nil, err
+	}
+	if interactiveResult.ReadyAfterLogin {
+		waitForSettle(s.ctx, postLoginSettleDelay)
 	}
 
 	if err := installJSONHook(s.ctx); err != nil {
@@ -241,16 +264,18 @@ func knownChromePaths() []string {
 	}
 }
 
-func waitForInteractive(ctx context.Context, timeout time.Duration) error {
+func waitForInteractive(ctx context.Context, timeout time.Duration, headless bool) (interactiveWaitResult, error) {
 	deadline := time.Now().Add(timeout)
 	readyPolls := 0
 	loginPolls := 0
 	lastReason := ""
+	lastLoginReason := ""
+	sawLoginRequired := false
 
 	for time.Now().Before(deadline) {
 		state := interactiveState{}
 		if err := chromedp.Run(ctx, chromedp.Evaluate(detectInteractiveJS, &state)); err != nil {
-			return fmt.Errorf("evaluate interactive state: %w", err)
+			return interactiveWaitResult{}, fmt.Errorf("evaluate interactive state: %w", err)
 		}
 		lastReason = state.Reason
 
@@ -258,16 +283,18 @@ func waitForInteractive(ctx context.Context, timeout time.Duration) error {
 			readyPolls++
 			loginPolls = 0
 			if readyPolls >= requiredReadyPolls {
-				return nil
+				return interactiveWaitResult{ReadyAfterLogin: sawLoginRequired}, nil
 			}
 		} else {
 			readyPolls = 0
 		}
 
 		if state.LoginRequired {
+			sawLoginRequired = true
+			lastLoginReason = state.Reason
 			loginPolls++
-			if loginPolls >= requiredLoginRequiredPolls {
-				return wrapStateError(ErrLoginRequired, state.Reason)
+			if headless && loginPolls >= requiredLoginRequiredPolls {
+				return interactiveWaitResult{}, wrapStateError(ErrLoginRequired, state.Reason)
 			}
 		} else {
 			loginPolls = 0
@@ -275,7 +302,24 @@ func waitForInteractive(ctx context.Context, timeout time.Duration) error {
 
 		time.Sleep(interactivePollInterval)
 	}
-	return wrapStateError(ErrInteractiveNotReady, lastReason)
+	if sawLoginRequired {
+		return interactiveWaitResult{}, wrapStateError(ErrLoginRequired, lastLoginReason)
+	}
+	return interactiveWaitResult{}, wrapStateError(ErrInteractiveNotReady, lastReason)
+}
+
+func waitForSettle(ctx context.Context, delay time.Duration) {
+	if delay <= 0 {
+		return
+	}
+
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+	case <-timer.C:
+	}
 }
 
 func submitPrompt(ctx context.Context, prompt string) error {

@@ -115,6 +115,9 @@ func loginRequiredError(cfg config.Config, cause error) error {
 	if cfg.ProfileMode == config.ProfileModeCopy {
 		return fmt.Errorf("%w: copy mode did not preserve a usable Doubao session; try --profile-mode persistent and sign in once; %v", ErrLoginRequired, cause)
 	}
+	if cfg.ProfileMode == config.ProfileModePersistent {
+		return fmt.Errorf("%w: persistent mode may be reusing a stale CLI profile; in headed mode, sign in in the opened browser and wait, or rerun with --refresh-cli-profile / remove %s to reseed it; %v", ErrLoginRequired, cfg.CLIProfileDir, cause)
+	}
 	return wrapUserVisibleError(ErrLoginRequired, cause)
 }
 

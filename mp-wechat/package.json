@@ -1,0 +1,23 @@
+{
+  "name": "mp-wechat",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Render Markdown into WeChat-friendly HTML and publish HTML drafts to WeChat Official Accounts.",
+  "bin": {
+    "mp-wechat-cli": "./src/cli.js"
+  },
+  "scripts": {
+    "dev": "bun src/cli.js",
+    "render": "bun src/cli.js",
+    "build": "node scripts/build-binary.js"
+  },
+  "dependencies": {
+    "jsdom": "^29.1.1",
+    "juice": "^11.1.1",
+    "markdown-it": "^14.1.1",
+    "markdown-it-deflist": "^3.0.0",
+    "markdown-it-implicit-figures": "^0.12.0",
+    "markdown-it-ruby": "^1.1.2",
+    "markdown-it-table-of-contents": "^1.2.0"
+  }
+}

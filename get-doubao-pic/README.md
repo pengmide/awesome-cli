@@ -29,7 +29,7 @@
 3. 准备 Chrome 用户目录。
    - `copy`：复制 `Local State` 和指定 profile 到临时目录，适合一次性运行，但对豆包登录态只做“尽力继承”，不保证一定复用成功。
    - `direct`：直接使用原始 `user-data-dir`，要求原始 Chrome 已关闭。
-   - `persistent`：使用 CLI 专用长期 `user-data-dir`。首次运行时会从原始 Chrome 完整初始化一份，后续不再重复复制，而是一直复用这份 CLI 自己维护的目录，适合“在 CLI 打开的浏览器里登录一次，以后长期复用”。
+   - `persistent`：使用 CLI 专用长期 `user-data-dir`。首次运行时只会从原始 Chrome 复制 `Local State` 和目标 profile，后续不再重复复制，而是一直复用这份 CLI 自己维护的目录，适合“在 CLI 打开的浏览器里登录一次，以后长期复用”。
 4. 使用 `chromedp` 启动并控制一个新的 Chrome 进程。
 5. 打开 `https://www.doubao.com/chat/`。
 6. 等待页面真正进入聊天态，再启发式定位输入框和发送按钮，自动输入 prompt 并发送。
@@ -95,7 +95,7 @@ go mod tidy
 本地编译：
 
 ```bash
-go build -o get-doubao-pic .
+go build -o ../bin/get-doubao-pic .
 ```
 
 运行二进制：
@@ -149,15 +149,27 @@ go run . \
 3. CLI 结束后，这个目录不会被删除。
 4. 下次再次运行时，会继续复用这个 CLI 专用目录。
 
+如果你是在有头模式下运行，页面出现登录按钮或登录弹窗时，CLI 会在 `--interactive-wait` 这段时间里继续等待，你可以直接在打开的浏览器窗口里完成登录。
+当页面从未登录态切回可交互态后，CLI 会额外短暂等待一下，再继续发送 prompt；命令结束时也会优雅关闭浏览器，尽量让登录态写回这份 CLI profile。
+
 如果你想显式指定 CLI 专用目录，可以加上 `--cli-profile-dir`。
 
 `persistent` 看起来像“不复制配置”，其实不是。它的真实行为是：
 
-1. 第一次运行时，如果 `--cli-profile-dir` 不存在或者是空目录，CLI 会把原始 Chrome `user-data-dir` 整体复制一份到 `--cli-profile-dir`。
+1. 第一次运行时，如果 `--cli-profile-dir` 不存在或者是空目录，CLI 会把原始 Chrome 的 `Local State` 和目标 profile 复制到 `--cli-profile-dir`。
 2. 从第二次开始，只要这个目录已经有内容，CLI 就不会再从原始 Chrome 同步，也不会再覆盖它。
 3. 后续所有登录态、Cookie、Local Storage、IndexedDB、扩展状态，都是在这份 CLI 自己的目录里持续累积。
 
 所以它稳定的原因，不是“它比 copy 更会复制”，而是“它只在第一次初始化时复制一次，之后就不再依赖原始 Chrome 的那份状态”。
+
+如果你怀疑 CLI 自己维护的这份目录已经陈旧，或者想把它重新和当前原始 Chrome 对齐，可以在下一次运行时加上：
+
+```bash
+go run . \
+  --prompt "画一只赛博朋克风格的猫" \
+  --profile-mode persistent \
+  --refresh-cli-profile
+```
 
 ### 3. 一次性运行
 
@@ -201,6 +213,7 @@ go run . \
   可选。已经抓到图片后，用来判断“本轮生成是否结束”的稳定窗口。
 - `--interactive-wait`
   可选。页面打开后等待可交互状态的最长时间。
+  在有头模式下，如果页面要求登录，这段时间也会被用来等待你手动完成登录。
 - `--profile-dir`
   可选。原始 Chrome 用户目录路径。
   macOS 默认通常是 `~/Library/Application Support/Google/Chrome`。
@@ -217,6 +230,9 @@ go run . \
   - macOS: `~/Library/Application Support/get-doubao-pic/chrome-user-data`
   - Linux: `~/.config/get-doubao-pic/chrome-user-data`
   - Windows: `%LOCALAPPDATA%\\get-doubao-pic\\chrome-user-data`
+- `--refresh-cli-profile`
+  可选。仅对 `persistent` 模式有意义。
+  重新初始化 `--cli-profile-dir`，用当前原始 Chrome 的 `Local State` 和目标 profile 覆盖 CLI 自己维护的目录。
 - `--chrome-path`
   可选。Chrome 可执行文件路径。
   当自动探测失败时手动指定。
@@ -303,7 +319,7 @@ go run . \
 
 ### 3. 在 CLI 浏览器里登录过，但下次还是没登录
 
-这通常说明你用的其实不是 `persistent`，而是 `copy`，或者换了 `--cli-profile-dir` 路径。
+这通常说明你用的其实不是 `persistent`，或者换了 `--cli-profile-dir` 路径，或者 CLI 自己维护的目录已经陈旧。
 
 如果你希望登录能保留下来，确保用的是：
 
@@ -314,6 +330,15 @@ go run . \
 ```
 
 并且两次运行时使用同一个 `--cli-profile-dir`。
+
+如果原始 Chrome 里明明还是登录的，但 CLI 突然提示未登录，优先尝试：
+
+```bash
+go run . \
+  --prompt "画一只赛博朋克风格的猫" \
+  --profile-mode persistent \
+  --refresh-cli-profile
+```
 
 ### 4. 页面未登录或无法进入可交互状态
 
