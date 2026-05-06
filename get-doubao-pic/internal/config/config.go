@@ -33,6 +33,7 @@ type Config struct {
 	ProfileName       string
 	ProfileMode       string
 	CLIProfileDir     string
+	RefreshCLIProfile bool
 	ChromePath        string
 	Headless          bool
 	DefaultOutputBase string
@@ -60,6 +61,7 @@ func Parse(args []string) (Config, error) {
 	fs.StringVar(&cfg.ProfileName, "profile-name", cfg.ProfileName, "Chrome profile directory name")
 	fs.StringVar(&cfg.ProfileMode, "profile-mode", cfg.ProfileMode, "Chrome profile strategy: copy, direct, or persistent")
 	fs.StringVar(&cfg.CLIProfileDir, "cli-profile-dir", cfg.CLIProfileDir, "Persistent CLI-owned Chrome user data directory")
+	fs.BoolVar(&cfg.RefreshCLIProfile, "refresh-cli-profile", false, "Reinitialize persistent CLI-owned Chrome user data from the source profile")
 	fs.StringVar(&cfg.ChromePath, "chrome-path", "", "Chrome executable path")
 	fs.BoolVar(&cfg.Headless, "headless", false, "Run Chrome in headless mode")
 
@@ -92,7 +94,7 @@ func Parse(args []string) (Config, error) {
 		return Config{}, fmt.Errorf("--cli-profile-dir must not be empty in persistent mode")
 	}
 
-	cfg.ProfileName = resolveProfileName(cfg.ProfileDir, cfg.ProfileName)
+	cfg.ProfileName = resolveProfileName(cfg.ProfileDir, cfg.ProfileName, cfg.ProfileMode, cfg.CLIProfileDir, cfg.RefreshCLIProfile)
 
 	if cfg.OutputDir == "" {
 		cfg.OutputDir = filepath.Join(
@@ -144,9 +146,15 @@ func defaultCLIChromeUserDataDir() string {
 	}
 }
 
-func resolveProfileName(profileDir string, requested string) string {
+func resolveProfileName(profileDir string, requested string, profileMode string, cliProfileDir string, refreshCLIProfile bool) string {
 	if requested != "" && !strings.EqualFold(requested, ProfileNameAuto) {
 		return requested
+	}
+
+	if profileMode == ProfileModePersistent && cliProfileDir != "" && !refreshCLIProfile {
+		if detected, err := detectLastUsedProfile(cliProfileDir); err == nil && detected != "" {
+			return detected
+		}
 	}
 
 	if detected, err := detectLastUsedProfile(profileDir); err == nil && detected != "" {

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/chromedp/chromedp"
 )
@@ -97,6 +98,79 @@ func TestSubmitPromptJSRefusesWhenLoginUIVisible(t *testing.T) {
 	}
 	if result.Reason != "login-required:login-ui-visible" {
 		t.Fatalf("unexpected submit result: %#v", result)
+	}
+}
+
+func TestWaitForInteractiveReturnsReadyAfterLogin(t *testing.T) {
+	ctx, cancel := newHeadlessBrowserContext(t)
+	defer cancel()
+
+	server := newFixtureServer(t, `<!doctype html>
+<html>
+  <body>
+    <div id="login" role="dialog" style="position:fixed;inset:0;background:rgba(0,0,0,.4);">
+      <button style="margin:120px auto;display:block;">登录</button>
+    </div>
+    <div style="position:fixed;left:24px;right:24px;bottom:24px;">
+      <textarea style="width:100%;height:96px;"></textarea>
+      <button aria-label="发送">发送</button>
+    </div>
+    <script>
+      setTimeout(() => {
+        const login = document.getElementById('login');
+        if (login) login.remove();
+      }, 900);
+    </script>
+  </body>
+</html>`)
+	defer server.Close()
+
+	if err := chromedp.Run(ctx,
+		chromedp.EmulateViewport(1280, 900),
+		chromedp.Navigate(server.URL+"/chat/"),
+		chromedp.WaitReady("body", chromedp.ByQuery),
+	); err != nil {
+		t.Fatalf("navigate: %v", err)
+	}
+
+	result, err := waitForInteractive(ctx, 4*time.Second, false)
+	if err != nil {
+		t.Fatalf("waitForInteractive returned error: %v", err)
+	}
+	if !result.ReadyAfterLogin {
+		t.Fatalf("expected login transition to be reported, got %#v", result)
+	}
+}
+
+func TestWaitForInteractiveReturnsDirectReadyWithoutLogin(t *testing.T) {
+	ctx, cancel := newHeadlessBrowserContext(t)
+	defer cancel()
+
+	server := newFixtureServer(t, `<!doctype html>
+<html>
+  <body>
+    <div style="position:fixed;left:24px;right:24px;bottom:24px;">
+      <textarea style="width:100%;height:96px;"></textarea>
+      <button aria-label="发送">发送</button>
+    </div>
+  </body>
+</html>`)
+	defer server.Close()
+
+	if err := chromedp.Run(ctx,
+		chromedp.EmulateViewport(1280, 900),
+		chromedp.Navigate(server.URL+"/chat/"),
+		chromedp.WaitReady("body", chromedp.ByQuery),
+	); err != nil {
+		t.Fatalf("navigate: %v", err)
+	}
+
+	result, err := waitForInteractive(ctx, 3*time.Second, false)
+	if err != nil {
+		t.Fatalf("waitForInteractive returned error: %v", err)
+	}
+	if result.ReadyAfterLogin {
+		t.Fatalf("expected direct ready state without login transition, got %#v", result)
 	}
 }
 

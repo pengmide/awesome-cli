@@ -31,29 +31,13 @@ func prepareUserDataDir(cfg config.Config) (preparedProfile, error) {
 	case config.ProfileModeCopy:
 		return prepareCopiedUserDataDir(cfg.ProfileDir, cfg.ProfileName)
 	case config.ProfileModePersistent:
-		return preparePersistentUserDataDir(cfg.ProfileDir, cfg.ProfileName, cfg.CLIProfileDir)
+		return preparePersistentUserDataDir(cfg.ProfileDir, cfg.ProfileName, cfg.CLIProfileDir, cfg.RefreshCLIProfile)
 	default:
 		return preparedProfile{}, fmt.Errorf("unsupported profile mode: %s", cfg.ProfileMode)
 	}
 }
 
 func prepareCopiedUserDataDir(sourceRoot string, profileName string) (preparedProfile, error) {
-	if sourceRoot == "" {
-		return preparedProfile{}, fmt.Errorf("profile-dir is required")
-	}
-	if profileName == "" {
-		return preparedProfile{}, fmt.Errorf("profile-name is required")
-	}
-
-	sourceProfileDir := filepath.Join(sourceRoot, profileName)
-	info, err := os.Stat(sourceProfileDir)
-	if err != nil {
-		return preparedProfile{}, fmt.Errorf("source profile %s: %w", sourceProfileDir, err)
-	}
-	if !info.IsDir() {
-		return preparedProfile{}, fmt.Errorf("source profile %s is not a directory", sourceProfileDir)
-	}
-
 	tempRoot, err := os.MkdirTemp("", "doubao-chrome-*")
 	if err != nil {
 		return preparedProfile{}, fmt.Errorf("create temp chrome dir: %w", err)
@@ -62,11 +46,7 @@ func prepareCopiedUserDataDir(sourceRoot string, profileName string) (preparedPr
 		return os.RemoveAll(tempRoot)
 	}
 
-	if err := copyChromeRootFile(sourceRoot, tempRoot, "Local State"); err != nil {
-		_ = cleanup()
-		return preparedProfile{}, err
-	}
-	if err := copyDirTree(sourceProfileDir, filepath.Join(tempRoot, profileName)); err != nil {
+	if err := seedUserDataDirFromProfile(sourceRoot, profileName, tempRoot); err != nil {
 		_ = cleanup()
 		return preparedProfile{}, err
 	}
@@ -77,35 +57,20 @@ func prepareCopiedUserDataDir(sourceRoot string, profileName string) (preparedPr
 	}, nil
 }
 
-func preparePersistentUserDataDir(sourceRoot string, profileName string, cliProfileDir string) (preparedProfile, error) {
-	if sourceRoot == "" {
-		return preparedProfile{}, fmt.Errorf("profile-dir is required")
-	}
-	if profileName == "" {
-		return preparedProfile{}, fmt.Errorf("profile-name is required")
-	}
+func preparePersistentUserDataDir(sourceRoot string, profileName string, cliProfileDir string, refresh bool) (preparedProfile, error) {
 	if cliProfileDir == "" {
 		return preparedProfile{}, fmt.Errorf("cli-profile-dir is required in persistent mode")
-	}
-
-	sourceProfileDir := filepath.Join(sourceRoot, profileName)
-	info, err := os.Stat(sourceProfileDir)
-	if err != nil {
-		return preparedProfile{}, fmt.Errorf("source profile %s: %w", sourceProfileDir, err)
-	}
-	if !info.IsDir() {
-		return preparedProfile{}, fmt.Errorf("source profile %s is not a directory", sourceProfileDir)
 	}
 
 	empty, err := dirEmpty(cliProfileDir)
 	if err != nil {
 		return preparedProfile{}, fmt.Errorf("check cli-profile-dir %s: %w", cliProfileDir, err)
 	}
-	if empty {
+	if empty || refresh {
 		if err := os.RemoveAll(cliProfileDir); err != nil && !os.IsNotExist(err) {
 			return preparedProfile{}, fmt.Errorf("reset cli-profile-dir %s: %w", cliProfileDir, err)
 		}
-		if err := copyChromeUserDataDir(sourceRoot, cliProfileDir); err != nil {
+		if err := seedUserDataDirFromProfile(sourceRoot, profileName, cliProfileDir); err != nil {
 			return preparedProfile{}, err
 		}
 	}
@@ -116,6 +81,42 @@ func preparePersistentUserDataDir(sourceRoot string, profileName string, cliProf
 			return nil
 		},
 	}, nil
+}
+
+func seedUserDataDirFromProfile(sourceRoot string, profileName string, targetRoot string) error {
+	sourceProfileDir, err := validateSourceProfile(sourceRoot, profileName)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(targetRoot, 0o755); err != nil {
+		return fmt.Errorf("create target user data dir %s: %w", targetRoot, err)
+	}
+	if err := copyChromeRootFile(sourceRoot, targetRoot, "Local State"); err != nil {
+		return err
+	}
+	if err := copyDirTree(sourceProfileDir, filepath.Join(targetRoot, profileName)); err != nil {
+		return fmt.Errorf("copy chrome profile %s: %w", sourceProfileDir, err)
+	}
+	return nil
+}
+
+func validateSourceProfile(sourceRoot string, profileName string) (string, error) {
+	if sourceRoot == "" {
+		return "", fmt.Errorf("profile-dir is required")
+	}
+	if profileName == "" {
+		return "", fmt.Errorf("profile-name is required")
+	}
+
+	sourceProfileDir := filepath.Join(sourceRoot, profileName)
+	info, err := os.Stat(sourceProfileDir)
+	if err != nil {
+		return "", fmt.Errorf("source profile %s: %w", sourceProfileDir, err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("source profile %s is not a directory", sourceProfileDir)
+	}
+	return sourceProfileDir, nil
 }
 
 func copyChromeRootFile(sourceRoot string, targetRoot string, name string) error {
@@ -133,23 +134,6 @@ func copyChromeRootFile(sourceRoot string, targetRoot string, name string) error
 	dst := filepath.Join(targetRoot, name)
 	if err := copyFile(src, dst, info.Mode()); err != nil {
 		return fmt.Errorf("copy chrome root file %s: %w", src, err)
-	}
-	return nil
-}
-
-func copyChromeUserDataDir(sourceRoot string, targetRoot string) error {
-	info, err := os.Stat(sourceRoot)
-	if err != nil {
-		return fmt.Errorf("stat chrome user data dir %s: %w", sourceRoot, err)
-	}
-	if !info.IsDir() {
-		return fmt.Errorf("chrome user data dir %s is not a directory", sourceRoot)
-	}
-	if err := os.MkdirAll(targetRoot, 0o755); err != nil {
-		return fmt.Errorf("create target user data dir %s: %w", targetRoot, err)
-	}
-	if err := copyDirTree(sourceRoot, targetRoot); err != nil {
-		return fmt.Errorf("copy chrome user data dir %s: %w", sourceRoot, err)
 	}
 	return nil
 }
