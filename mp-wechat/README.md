@@ -3,6 +3,7 @@
 `mp-wechat` 是一个本地微信公众号文章 CLI 工具，统一提供两类能力：
 
 - 将本地 Markdown 渲染成微信公众号可粘贴的 HTML 片段
+- 将本地图片转成 base64 并嵌入 Markdown
 - 将已有 HTML 片段上传到微信公众号草稿箱
 
 项目维护目录：
@@ -48,6 +49,12 @@ bun src/cli.js --help
 bun src/cli.js ../a.md
 ```
 
+将本地图片嵌入 Markdown：
+
+```bash
+bun src/cli.js embed-img ./images ../a.md
+```
+
 上传已有 HTML 到公众号草稿箱：
 
 ```bash
@@ -78,6 +85,7 @@ bun run build
 ```bash
 /Users/pengmd/c/awesome-cli/bin/mp-wechat-cli --help
 /Users/pengmd/c/awesome-cli/bin/mp-wechat-cli ../a.md
+/Users/pengmd/c/awesome-cli/bin/mp-wechat-cli embed-img ./images ../a.md
 /Users/pengmd/c/awesome-cli/bin/mp-wechat-cli publish-draft ./out/a.wechat.html --appid "xxx" --secret "yyy"
 ```
 
@@ -106,6 +114,28 @@ out/<文件名>.wechat.html
 ```text
 green -> 绿意 / 夜尽天明
 ```
+
+### 图片嵌入 Markdown
+
+```bash
+mp-wechat-cli embed-img <img-or-img-folder> <file.md> [--count <n>] [--out <output.md>]
+```
+
+示例：
+
+```bash
+bun src/cli.js embed-img ./cover.jpg ../a.md
+bun src/cli.js embed-img ./images ../a.md --count 3
+bun src/cli.js embed-img ./images ../a.md --out ../a.with-img.md
+```
+
+默认行为：
+
+- 单个图片文件会嵌入这一张图片
+- 图片目录会按文件名排序，取前 `5` 张；可以用 `--count <n>` 调整
+- 多张图片会分散插入到不同段落位置，避免连续堆在一起
+- 不覆盖原 Markdown；未传 `--out` 时输出到同目录 `<文件名>.embedded.md`
+- 支持 `jpg`、`jpeg`、`png`、`gif`
 
 ### HTML 上传到微信公众号草稿箱
 
@@ -147,6 +177,7 @@ Markdown 渲染阶段：
 - `http://` 或 `https://` 图片会原样保留
 - `data:image/...;base64,...` 图片会原样保留
 - 本地相对路径或绝对路径图片不会自动上传
+- 可以先用 `embed-img` 将本地图片嵌入 Markdown，再进入渲染和草稿上传流程
 
 草稿上传阶段：
 
@@ -165,6 +196,7 @@ Markdown 渲染阶段：
 `src/cli.js` 是统一入口：
 
 - 普通参数路径进入 Markdown 渲染流程
+- `embed-img` 子命令进入 Markdown 图片嵌入流程
 - `publish-draft` 子命令进入微信公众号草稿上传流程
 
 上传草稿逻辑已经合并在 `src/cli.js` 中，项目不再单独维护 `src/wechat-publish.js`。

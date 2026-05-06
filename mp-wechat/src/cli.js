@@ -5,6 +5,7 @@ const path = require("path");
 const {JSDOM} = require("jsdom");
 const {convertMarkdownFile, getThemeChoices} = require("./convert");
 const {copyHtmlToClipboard} = require("./clipboard");
+const {DEFAULT_IMAGE_COUNT, embedImagesInMarkdown} = require("./embed-img");
 
 const TOKEN_URL = "https://api.weixin.qq.com/cgi-bin/token";
 const UPLOAD_IMAGE_URL = "https://api.weixin.qq.com/cgi-bin/media/uploadimg";
@@ -21,12 +22,14 @@ const MIME_EXTENSIONS = {
 function printUsage() {
   console.log(`Usage:
   mp-wechat-cli <input.md> [--out <output.html>] [--theme <theme>] [--copy-html]
+  mp-wechat-cli embed-img <img-or-img-folder> <file.md> [--count <n>] [--out <output.md>]
   mp-wechat-cli publish-draft <input.html> --appid <appid> --secret <secret> [--out <output.html>] [--title <title>] [--author <author>] [--digest <digest>]
 
 Options:
   --out <path>     Output HTML path. Defaults to mp-wechat/out/<name>.wechat.html
   --theme <name>   Theme name. Available: ${getThemeChoices().join(", ")}
   --copy-html      Also write the rendered HTML into macOS clipboard as text/html
+  --count <n>      Number of sorted directory images to embed. Defaults to ${DEFAULT_IMAGE_COUNT}
   --appid <appid>  WeChat Official Account AppID for publish-draft
   --secret <key>   WeChat Official Account AppSecret for publish-draft
   --title <title>  Draft title. Defaults to the first h1 in the HTML
@@ -40,7 +43,9 @@ function parseArgs(argv) {
   const args = argv.slice(2);
   const options = {
     inputPath: "",
+    imageInputPath: "",
     outPath: "",
+    count: DEFAULT_IMAGE_COUNT,
     theme: "green",
     copyHtml: false,
     command: "render",
@@ -53,6 +58,9 @@ function parseArgs(argv) {
 
   if (args[0] === "publish-draft") {
     options.command = "publish-draft";
+    args.shift();
+  } else if (args[0] === "embed-img") {
+    options.command = "embed-img";
     args.shift();
   }
 
@@ -75,6 +83,14 @@ function parseArgs(argv) {
         throw new Error("Missing value for --theme");
       }
       options.theme = args[i + 1];
+      i += 1;
+      continue;
+    }
+    if (arg === "--count") {
+      if (!args[i + 1]) {
+        throw new Error("Missing value for --count");
+      }
+      options.count = args[i + 1];
       i += 1;
       continue;
     }
@@ -120,6 +136,10 @@ function parseArgs(argv) {
     }
     if (arg === "--copy-html") {
       options.copyHtml = true;
+      continue;
+    }
+    if (options.command === "embed-img" && !options.imageInputPath) {
+      options.imageInputPath = arg;
       continue;
     }
     if (!options.inputPath) {
@@ -378,6 +398,26 @@ async function main() {
     const cwd = process.cwd();
     const inputPath = path.resolve(cwd, options.inputPath);
     const outPath = options.outPath ? path.resolve(cwd, options.outPath) : "";
+
+    if (options.command === "embed-img") {
+      if (!options.imageInputPath) {
+        throw new Error("Missing required image file or image folder");
+      }
+      const imageInputPath = path.resolve(cwd, options.imageInputPath);
+      const result = await embedImagesInMarkdown({
+        imageInputPath,
+        markdownPath: inputPath,
+        outPath,
+        count: options.count,
+      });
+
+      console.log(`Generated: ${result.outputPath}`);
+      console.log(`Embedded images: ${result.embeddedImageCount}`);
+      result.imagePaths.forEach((imagePath) => {
+        console.log(`  - ${imagePath}`);
+      });
+      return;
+    }
 
     if (options.command === "publish-draft") {
       const result = await publishHtmlDraft({
