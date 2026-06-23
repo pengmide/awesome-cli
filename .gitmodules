@@ -1,0 +1,3 @@
+[submodule "deck-cli"]
+	path = deck-cli
+	url = git@github.com:pengmide/deck-cli.git
