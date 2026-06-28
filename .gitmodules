@@ -1,6 +1,3 @@
-[submodule "deck-cli"]
-	path = deck-cli
-	url = git@github.com:pengmide/deck-cli.git
 [submodule "md2html"]
 	path = md2html
 	url = git@github.com:pengmide/md2html.git
